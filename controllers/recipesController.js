@@ -1,58 +1,53 @@
-const recipes = [
-    {
-        id: "1",
-        title: "brownies",
-        description: "Brief description",
-        ingredients: ["ingredient 1", "ingredient 2"],
-        instructions: ["step 1", "step 2"],
-        cookingTime: 30, // in minutes
-        servings: 4,
-        difficulty: "easy", // easy, medium, hard
-        rating: 4.5,
-        createdAt: "2025-01-01T00:00:00.000Z"
-    },
-    {
-        id: "2",
-        title: "shawarma",
-        description: "Brief description",
-        ingredients: ["ingredient 1", "ingredient 2"],
-        instructions: ["step 1", "step 2"],
-        cookingTime: 30, // in minutes
-        servings: 4,
-        difficulty: "easy", // easy, medium, hard
-        rating: 4.5,
-        createdAt: "2025-01-01T00:00:00.000Z"
-    }
-]
+const { v4: uuidv4 } = require('uuid');
 
-async function getAllRecipes(req, res) {
+async function getAllRecipes(req, res, next) {
     try {
-        res.status(200).json(recipes);
+        const recipes = await readRecipes();
+        const { difficulty, maxCookingTime, search } = req.query;
+        let filteredRecipes = recipes;
+
+        if (difficulty) {
+            filteredRecipes = filteredRecipes.filter(r => r.difficulty === difficulty);
+        }
+        if (maxCookingTime) {
+            const numCookingTime = Number(maxCookingTime);
+            filteredRecipes = filteredRecipes.filter(r => r.cookingTime <= numCookingTime);
+        }
+        if (search) {
+            const searchTerm = search.toLowerCase();
+            filteredRecipes = filteredRecipes.filter(r => r.title.toLowerCase().includes(searchTerm) || r.description.toLowerCase().includes(searchTerm))
+        }
+
+        res.status(200).json(filteredRecipes);
     } catch (error) {
-        res.status(500).json({ message: "Error fetching recipes" });
+        next(error);
     }
 }
 
-async function getRecipesById(req, res) {
+async function getRecipesById(req, res, next) {
     try {
+        const recipes = await readRecipes();
         const recipesID = req.params.id;
         const recipe = recipes.find(r => r.id === recipesID);
 
         if (!recipe) {
-            return res.status(404).json({ message: "Recipe not found" });
+            const error = new Error("Recipe not found");
+            error.statusCode = 404;
+            return next(error);
         }
 
         res.status(200).json(recipe);
     } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        next(error);
     }
 }
 
-async function createRecipe(req, res) {
+async function createRecipe(req, res, next) {
     try {
+        const recipes = await readRecipes();
         const { title, description, ingredients, instructions, cookingTime, servings, difficulty } = req.body;
         const newRecipe = {
-            id: (recipes.length + 1).toString(),
+            id: uuidv4(),
             title,
             description,
             ingredients,
@@ -65,36 +60,96 @@ async function createRecipe(req, res) {
         }
 
         recipes.push(newRecipe);
+        await writeRecipes(recipes);
         res.status(201).json(newRecipe);
+
     } catch (error) {
-        return res.status(500).json({ message: "Internal Server Error" });
+        next(error);
     }
 }
 
-async function updateRecipe(req, res) {
+async function updateRecipe(req, res, next) {
     try {
+        const recipes = await readRecipes();
         const recipeToUpDate = req.params.id;
         const indexToUpDate = recipes.findIndex(r => r.id === recipeToUpDate);
 
         if (indexToUpDate === -1) {
-            return res.status(404).json({ message: "Recipe not found" });
+            const error = new Error("Recipe not found")
+            error.statusCode = 404;
+            return next(error)
         }
+
 
         const updatedRecipe = {
             ...recipes[indexToUpDate],
             ...req.body
         };
         recipes[indexToUpDate] = updatedRecipe;
+        await writeRecipes(recipes);
         res.status(200).json(updatedRecipe);
     } catch (error) {
-        res.status(500).json({ message: "Error updating recipe" });
+        next(error);
+    }
+}
+
+async function deleteRecipe(req, res, next) {
+    try {
+        const recipes = await readRecipes();
+        const recipeIdToDelete = req.params.id;
+        const indexOfRecip = recipes.findIndex(r => r.id === recipeIdToDelete);
+
+        if (indexOfRecip === -1) {
+            const error = new Error("Recipe not found")
+            error.statusCode = 404;
+            return next(error)
+        }
+
+        recipes.splice(indexOfRecip, 1);
+        await writeRecipes(recipes);
+        res.status(204).send();
+
+    } catch (error) {
+        next(error);
     }
 
 }
+
+async function getStatsRecipe(req, res, next) {
+    try {
+        const recipes = await readRecipes();
+        let totalCookingTime = 0;
+        recipes.forEach(r => totalCookingTime += r.cookingTime)
+        const avg = recipes.length > 0 ? totalCookingTime / recipes.length : 0;
+
+        const easyCount = recipes.filter(r => r.difficulty === 'easy').length;
+        const mediumCount = recipes.filter(r => r.difficulty === 'medium').length;
+        const hardCount = recipes.filter(r => r.difficulty === 'hard').length;
+
+        const stats = {
+            totalRecipes: recipes.length,
+            averageCookingTime: avg,
+            recipesByDifficulty: {
+                easy: easyCount,
+                medium: mediumCount,
+                hard: hardCount
+            }
+        }
+        res.status(200).json(stats)
+
+    } catch (error) {
+        next(error);
+    }
+}
+
+
 
 module.exports = {
     getAllRecipes,
     getRecipesById,
     createRecipe,
-    updateRecipe
+    updateRecipe,
+    deleteRecipe,
+    getStatsRecipe
 }
+
